@@ -60,10 +60,10 @@ async def response_listener(websocket):
 async def handle_special_kill(websocket, mob_type):
     """Dispatches targeted sound packets and chat announcements globally."""
     if mob_type == "creeper":
-        chat_cmd = "/say §a[Daemon] §c§l⚠️ ALERT: A hidden Creeper was vaporized nearby!§r"
+        chat_cmd = "/say [Daemon] ALERT: A hidden Creeper was vaporized nearby!"
         sound_cmd = "/playsound minecraft:block.anvil.land ambient @a ~ ~ ~ 1.0 1.5"
     elif mob_type == "enderman":
-        chat_cmd = "/say §a[Daemon] §d§l🔮 ALERT: An Enderman tried to stalk you, but was deleted!§r"
+        chat_cmd = "/say [Daemon] ALERT: An Enderman tried to stalk you, but was deleted!"
         sound_cmd = "/playsound minecraft:entity.enderman.teleport ambient @a ~ ~ ~ 1.0 1.0"
     else:
         return
@@ -109,7 +109,7 @@ async def minecraft_handler(websocket, path=None):
         await websocket.send(json.dumps(rule1))
         await websocket.send(json.dumps(rule2))
         
-        _, welcome = generate_command_packet("/say §a[Python Daemon]: Operational. Sound alerts active.§r")
+        _, welcome = generate_command_packet("/say [Python Daemon]: Operational. Sound alerts active.")
         await websocket.send(json.dumps(welcome))
 
         await asyncio.gather(
