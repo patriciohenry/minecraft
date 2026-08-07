@@ -52,14 +52,14 @@ async def process_command_stream(websocket, path=None):
 
 def health_check_filter(path, headers):
     """
-    Corrected signature unpacking for your websockets library version.
     Interceptors for non-websocket upgrade strings (Render health bots).
+    Bypasses package dependencies by explicitly delivering a fallback integer.
     """
     # Check if the connection request lacks standard WebSocket Upgrade keys
     if "Upgrade" not in headers:
-        # Return a clean 200 OK directly to the Render load balancer
+        # 200 represents HTTPStatus.OK across all variations
         return (
-            websockets.http.HTTPStatus.OK,
+            200,
             [("Content-Type", "text/plain")],
             b"Healthy"
         )
@@ -68,7 +68,6 @@ def health_check_filter(path, headers):
 async def main():
     logging.info(f"[*] Starting Production Websocket Daemon on Port {PORT}...")
     
-    # Notice we drop 'async' from health_check_filter as it evaluates synchronously
     async with websockets.serve(
         process_command_stream, 
         HOST, 
