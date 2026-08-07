@@ -4,6 +4,8 @@ import uuid
 import sys
 import logging
 import websockets
+# Importamos la estructura de respuesta nativa de la biblioteca
+from websockets.http import Response
 
 logging.basicConfig(
     level=logging.INFO,
@@ -32,9 +34,9 @@ def generate_command_packet(cmd_string):
     }
 
 async def process_command_stream(websocket, path=None):
-    """Main communication loop with the Minecraft client."""
+    """Maneja los comandos de Minecraft de forma continua."""
     peer_address = websocket.remote_address
-    logging.info(f"[+] Minecraft Connected Successfully: {peer_address}")
+    logging.info(f"[+] Minecraft Conectado Exitosamente: {peer_address}")
     
     try:
         await websocket.send(json.dumps(generate_command_packet("/gamerule commandBlockOutput false")))
@@ -48,25 +50,26 @@ async def process_command_stream(websocket, path=None):
             await asyncio.sleep(2.0)
             
     except websockets.exceptions.ConnectionClosed:
-        logging.info(f"[-] Minecraft disconnected: {peer_address}")
+        logging.info(f"[-] Minecraft desconectado: {peer_address}")
 
 def health_check_filter(path, headers):
     """
-    Interceptors for non-websocket upgrade strings (Render health bots).
-    Bypasses package dependencies by explicitly delivering a fallback integer.
+    Intercepta las conexiones de Render de forma correcta.
+    Usa la clase Response para evitar el error 400 Bad Request.
     """
-    # Check if the connection request lacks standard WebSocket Upgrade keys
     if "Upgrade" not in headers:
-        # 200 represents HTTPStatus.OK across all variations
-        return (
-            200,
-            [("Content-Type", "text/plain")],
-            b"Healthy"
+        logging.info("[Diagnóstico] Respondiendo al ping automático de Render.")
+        # Retornamos un objeto Response nativo (Código 200, mensaje, cabeceras, contenido)
+        return Response(
+            status=200,
+            phrase="OK",
+            headers=[("Content-Type", "text/plain")],
+            body=b"Healthy"
         )
     return None
 
 async def main():
-    logging.info(f"[*] Starting Production Websocket Daemon on Port {PORT}...")
+    logging.info(f"[*] Iniciando Servidor WebSockets en Puerto {PORT}...")
     
     async with websockets.serve(
         process_command_stream, 
