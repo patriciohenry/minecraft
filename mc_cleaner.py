@@ -5,11 +5,17 @@ import sys
 import logging
 import websockets
 
+# PRODUCTION LOGGING OVERRIDE:
+# We set the global root logger to WARNING so third-party library spam is silenced.
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.WARNING,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[logging.StreamHandler(sys.stdout)]
 )
+
+# Custom logger specifically for your script's logic logs
+logger = logging.getLogger("mc_cleaner")
+logger.setLevel(logging.INFO)
 
 HOST = "0.0.0.0"
 PORT = 3000
@@ -32,9 +38,9 @@ def generate_command_packet(cmd_string):
     }
 
 async def process_command_stream(websocket, path=None):
-    """Main communication loop with the Minecraft client."""
     peer_address = websocket.remote_address
-    logging.info(f"[+] Minecraft Connected Successfully: {peer_address}")
+    # Using your custom logger so this explicitly shows up in your console
+    logger.info(f"[+] Minecraft Connected Successfully: {peer_address}")
     
     try:
         await websocket.send(json.dumps(generate_command_packet("/gamerule commandBlockOutput false")))
@@ -48,19 +54,12 @@ async def process_command_stream(websocket, path=None):
             await asyncio.sleep(2.0)
             
     except websockets.exceptions.ConnectionClosed:
-        logging.info(f"[-] Minecraft disconnected: {peer_address}")
+        logger.info(f"[-] Minecraft disconnected: {peer_address}")
 
 def health_check_filter(connection, request=None):
-    """
-    Production-ready interceptor for websockets v12+.
-    Gracefully unpacks the request properties to handle Render's probe.
-    """
-    # Fallback to handle both connection-first or request-first signatures
     req_obj = request if request is not None else connection
-    
-    # Check if the incoming connection lacks standard Upgrade keys
     if "Upgrade" not in req_obj.headers:
-        # Return a standard HTTP 200 OK string directly to Render
+        # Returns silently without calling logger.info()
         return (
             200, 
             [("Content-Type", "text/plain")], 
@@ -69,7 +68,7 @@ def health_check_filter(connection, request=None):
     return None
 
 async def main():
-    logging.info(f"[*] Starting Production Websocket Daemon on Port {PORT}...")
+    logger.info(f"[*] Starting Production Websocket Daemon on Port {PORT}...")
     
     async with websockets.serve(
         process_command_stream, 
