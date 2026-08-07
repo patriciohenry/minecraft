@@ -3,10 +3,9 @@ import json
 import uuid
 import sys
 import logging
-import re
 import websockets
 
-# Configure logging for cloud console visibility
+# Configure logging for Render console visibility
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -18,8 +17,6 @@ PORT = 3000
 
 # Base target list for silent disposal
 SILENT_MOBS = ["zombie", "husk", "drowned", "zombie_villager"]
-
-# Track active request IDs to map them to targeted entity drops
 tracked_requests = {}
 
 def generate_command_packet(cmd_string):
@@ -40,24 +37,18 @@ def generate_command_packet(cmd_string):
     }
 
 async def response_listener(websocket):
-    """
-    Asynchronously listens to incoming execution receipts from the game client.
-    Triggers actions if an Enderman or Creeper target was eliminated.
-    """
+    """Listens to execution receipts from the game client."""
     try:
         async for message in websocket:
             packet = json.loads(message)
             header = packet.get("header", {})
             req_id = header.get("requestId")
             
-            # Check if this response maps to an outstanding tracked entity kill request
             if req_id in tracked_requests:
                 mob_type = tracked_requests.pop(req_id)
                 body = packet.get("body", {})
                 status_msg = body.get("statusMessage", "")
                 
-                # Verify that an entity was actually affected (not an empty world sweep)
-                # Bedrock standard success output contains "Killed <Entity>" or "Killed 1 entities"
                 if "Killed" in status_msg or "Murió" in status_msg or body.get("statusCode") == 0:
                     await handle_special_kill(websocket, mob_type)
                     
@@ -69,17 +60,15 @@ async def response_listener(websocket):
 async def handle_special_kill(websocket, mob_type):
     """Dispatches targeted sound packets and chat announcements globally."""
     if mob_type == "creeper":
-        # Green warning text and an explosive/anvil visual audio queue
         chat_cmd = "/say §a[Daemon] §c§l⚠️ ALERT: A hidden Creeper was vaporized nearby!§r"
-        sound_cmd = "/playsound random.anvil_land @a ~ ~ ~ 1.0 1.5"
+        sound_cmd = "/playsound minecraft:block.anvil.land ambient @a ~ ~ ~ 1.0 1.5"
     elif mob_type == "enderman":
-        # Purple text and a high-pitched teleportation sound cue
         chat_cmd = "/say §a[Daemon] §d§l🔮 ALERT: An Enderman tried to stalk you, but was deleted!§r"
-        sound_cmd = "/playsound mob.endermen.portal @a ~ ~ ~ 1.0 1.0"
+        sound_cmd = "/playsound minecraft:entity.enderman.teleport ambient @a ~ ~ ~ 1.0 1.0"
     else:
         return
 
-    logging.info(f"Special entity triggered: {mob_type}. Broadcasting telemetry packets.")
+    logging.info(f"Special entity triggered: {mob_type}.")
     _, chat_packet = generate_command_packet(chat_cmd)
     _, sound_packet = generate_command_packet(sound_cmd)
     
@@ -87,7 +76,7 @@ async def handle_special_kill(websocket, mob_type):
     await websocket.send(json.dumps(sound_packet))
 
 async def sweep_loop(websocket):
-    """Continuously runs global sweeps across the active loaded chunks."""
+    """Continuously runs global sweeps across the active chunks."""
     try:
         while True:
             # 1. Sweep standard silent hostile targets
@@ -105,7 +94,6 @@ async def sweep_loop(websocket):
             tracked_requests[req_id_e] = "enderman"
             await websocket.send(json.dumps(packet_e))
             
-            # Keep clean memory limits by pruning old tracked requests after a delay
             await asyncio.sleep(2.0)
             
     except websockets.exceptions.ConnectionClosed:
@@ -116,16 +104,14 @@ async def minecraft_handler(websocket, path=None):
     logging.info(f"Handshake initiated with client: {peer_address}")
     
     try:
-        # Suppress standard admin spam to prevent script loop echoing onto player text feeds
-        _, rule1 = generate_command_packet("/gamerule commandblockoutput false")
-        _, rule2 = generate_command_packet("/gamerule sendcommandfeedback false")
+        _, rule1 = generate_command_packet("/gamerule commandBlockOutput false")
+        _, rule2 = generate_command_packet("/gamerule sendCommandFeedback false")
         await websocket.send(json.dumps(rule1))
         await websocket.send(json.dumps(rule2))
         
-        _, welcome = generate_command_packet("/say §aPython Daemon: Operational. Sound alerts active.§r")
+        _, welcome = generate_command_packet("/say §a[Python Daemon]: Operational. Sound alerts active.§r")
         await websocket.send(json.dumps(welcome))
 
-        # Concurrently manage outbound sweeps and inbound network responses
         await asyncio.gather(
             sweep_loop(websocket),
             response_listener(websocket)
