@@ -5,7 +5,6 @@ import sys
 import logging
 import websockets
 
-# Configuración de logs limpia
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -32,16 +31,15 @@ def generate_command_packet(cmd_string):
         }
     }
 
-async def process_command_stream(websocket):
-    """Bucle asíncrono principal que inyecta comandos al juego de forma fluida."""
+async def process_command_stream(websocket, path=None):
+    """Main communication loop with the Minecraft client."""
     peer_address = websocket.remote_address
-    logging.info(f"[+] Minecraft Conectado Exitosamente: {peer_address}")
+    logging.info(f"[+] Minecraft Connected Successfully: {peer_address}")
     
     try:
-        # Enviar reglas automáticas al iniciar por si acaso
         await websocket.send(json.dumps(generate_command_packet("/gamerule commandBlockOutput false")))
         await websocket.send(json.dumps(generate_command_packet("/gamerule sendCommandFeedback false")))
-        await websocket.send(json.dumps(generate_command_packet("/say [Nube] Servicio de Proteccion Activo.")))
+        await websocket.send(json.dumps(generate_command_packet("/say [Nube] Anti-Mob protection active.")))
 
         while True:
             for mob in ALL_MOBS:
@@ -50,17 +48,16 @@ async def process_command_stream(websocket):
             await asyncio.sleep(2.0)
             
     except websockets.exceptions.ConnectionClosed:
-        logging.info(f"[-] Minecraft desconectado: {peer_address}")
+        logging.info(f"[-] Minecraft disconnected: {peer_address}")
 
-async def health_check_filter(connection, HTTP_path):
+def health_check_filter(path, headers):
     """
-    Filtro de Arquitectura: Intercepta las solicitudes HTTP antes del handshake.
-    Si la petición es del bot de Render (HTTP plano), responde 200 OK de forma
-    silenciosa y evita que inunde el log con errores '400 Bad Request'.
+    Corrected signature unpacking for your websockets library version.
+    Interceptors for non-websocket upgrade strings (Render health bots).
     """
-    # Si no es una solicitud de actualización a WebSocket (es un ping de Render)
-    if "Upgrade" not in connection.headers:
-        # Devolvemos un estado HTTP 200 válido silencioso para el balanceador
+    # Check if the connection request lacks standard WebSocket Upgrade keys
+    if "Upgrade" not in headers:
+        # Return a clean 200 OK directly to the Render load balancer
         return (
             websockets.http.HTTPStatus.OK,
             [("Content-Type", "text/plain")],
@@ -69,9 +66,9 @@ async def health_check_filter(connection, HTTP_path):
     return None
 
 async def main():
-    logging.info(f"[*] Iniciando Servidor WebSockets Híbrido en Puerto {PORT}...")
+    logging.info(f"[*] Starting Production Websocket Daemon on Port {PORT}...")
     
-    # Inyectamos el filtro de salud 'process_request' en el constructor del servidor
+    # Notice we drop 'async' from health_check_filter as it evaluates synchronously
     async with websockets.serve(
         process_command_stream, 
         HOST, 
