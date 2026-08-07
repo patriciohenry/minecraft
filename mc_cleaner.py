@@ -50,13 +50,17 @@ async def process_command_stream(websocket, path=None):
     except websockets.exceptions.ConnectionClosed:
         logging.info(f"[-] Minecraft disconnected: {peer_address}")
 
-def health_check_filter(path, headers):
+def health_check_filter(connection, request=None):
     """
-    Catches Render health checks without extra class definitions or imports.
-    Returning a simple HTTP integer status code satisfies the server hook.
+    Production-ready interceptor for websockets v12+.
+    Gracefully unpacks the request properties to handle Render's probe.
     """
-    if "Upgrade" not in headers:
-        # Standard HTTP 200 code, response headers, and explicit message byte format
+    # Fallback to handle both connection-first or request-first signatures
+    req_obj = request if request is not None else connection
+    
+    # Check if the incoming connection lacks standard Upgrade keys
+    if "Upgrade" not in req_obj.headers:
+        # Return a standard HTTP 200 OK string directly to Render
         return (
             200, 
             [("Content-Type", "text/plain")], 
