@@ -5,18 +5,17 @@ import sys
 import logging
 import websockets
 
-# PRODUCTION LOGGING OVERRIDE:
-# We set the global root logger to WARNING so third-party library spam is silenced.
+# Configuración de logs limpia para evitar ruido en producción
 logging.basicConfig(
     level=logging.WARNING,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 
-# Custom logger specifically for your script's logic logs
 logger = logging.getLogger("mc_cleaner")
 logger.setLevel(logging.INFO)
 
+# Configuración de red para contenedores Docker en Render
 HOST = "0.0.0.0"
 PORT = 3000
 
@@ -37,10 +36,10 @@ def generate_command_packet(cmd_string):
         }
     }
 
-async def process_command_stream(websocket, path=None):
+async def process_command_stream(websocket):
+    """Bucle directo de inyección de comandos."""
     peer_address = websocket.remote_address
-    # Using your custom logger so this explicitly shows up in your console
-    logger.info(f"[+] Minecraft Connected Successfully: {peer_address}")
+    logger.info(f"[+] Minecraft Conectado Exitosamente: {peer_address}")
     
     try:
         await websocket.send(json.dumps(generate_command_packet("/gamerule commandBlockOutput false")))
@@ -54,27 +53,16 @@ async def process_command_stream(websocket, path=None):
             await asyncio.sleep(2.0)
             
     except websockets.exceptions.ConnectionClosed:
-        logger.info(f"[-] Minecraft disconnected: {peer_address}")
-
-def health_check_filter(connection, request=None):
-    req_obj = request if request is not None else connection
-    if "Upgrade" not in req_obj.headers:
-        # Returns silently without calling logger.info()
-        return (
-            200, 
-            [("Content-Type", "text/plain")], 
-            b"Healthy"
-        )
-    return None
+        logger.info(f"[-] Minecraft desconectado: {peer_address}")
 
 async def main():
-    logger.info(f"[*] Starting Production Websocket Daemon on Port {PORT}...")
+    logger.info(f"[*] Iniciando Servidor WebSockets en Puerto {PORT}...")
     
+    # Levantamos el servicio básico sin filtros complejos para máxima compatibilidad
     async with websockets.serve(
         process_command_stream, 
         HOST, 
-        PORT,
-        process_request=health_check_filter
+        PORT
     ):
         await asyncio.Future()
 
