@@ -4,9 +4,7 @@ import uuid
 import sys
 import logging
 import websockets
-from websockets.http11 import Response
 
-# Configuración de logs limpia para evitar ruido en producción
 logging.basicConfig(
     level=logging.WARNING,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -16,7 +14,6 @@ logging.basicConfig(
 logger = logging.getLogger("mc_cleaner")
 logger.setLevel(logging.INFO)
 
-# Configuración de red para contenedores Docker en Render
 HOST = "0.0.0.0"
 PORT = 3000
 
@@ -43,7 +40,8 @@ async def process_command_stream(websocket):
     logger.info(f"[+] Minecraft Conectado Exitosamente: {peer_address}")
     
     try:
-        await asyncio.sleep(1.0) # Tiempo para que la tablet asimile el canal
+        # Pausa crucial para permitir que la tablet asimile el canal seguro antes de saturarla
+        await asyncio.sleep(1.0)
 
         await websocket.send(json.dumps(generate_command_packet("gamerule commandblockoutput false")))
         await websocket.send(json.dumps(generate_command_packet("gamerule sendcommandfeedback false")))
@@ -58,27 +56,18 @@ async def process_command_stream(websocket):
     except websockets.exceptions.ConnectionClosed:
         logger.info(f"[-] Minecraft desconectado: {peer_address}")
 
-async def process_handshake(connection, request):
-    """
-    Maneja el protocolo de saludo de Minecraft Bedrock de forma segura
-    compatible con websockets >= 12.0
-    """
-    # En versiones modernas, extraemos las cabeceras usando .headers.get()
-    protocol_header = request.headers.get("Sec-WebSocket-Protocol", "")
-    
-    if protocol_header:
-        # Si la tablet pide un subprotocolo, se lo aprobamos en la respuesta
-        return Response(
-            status=101,
-            reason="Switching Protocols",
-            headers={"Sec-WebSocket-Protocol": protocol_header}
-        )
+# CORRECCIÓN PARA WEBSOCKETS 12.0+: Interceptamos de forma segura las cabeceras del objeto Request
+async def process_handshake(websocket, request):
+    # En websockets 12+, las cabeceras se extraen usando request.headers
+    if "Sec-WebSocket-Protocol" in request.headers:
+        # Le devolvemos a Minecraft exactamente el protocolo que nos está pidiendo para validar el handshake
+        websocket.subprotocol = request.headers["Sec-WebSocket-Protocol"]
     return None
 
 async def main():
     logger.info(f"[*] Iniciando Servidor WebSockets en Puerto {PORT}...")
     
-    # Configuramos el servidor ignorando restricciones de origen para el proxy de Render
+    # Abrimos el servidor ignorando restricciones de origen externas (origins=[None])
     async with websockets.serve(
         process_command_stream, 
         HOST, 
