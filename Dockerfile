@@ -14,6 +14,6 @@ COPY mc_cleaner.py .
 # CRITICAL FIX: Tell Render to route public internet traffic to port 3000
 EXPOSE 3000
 
-# Run the script when the container starts
-CMD ["python", "mc_cleaner.py"]
+# Run the application through the production server wrapper
+CMD ["uvicorn", "mc_cleaner:app", "--host", "0.0.0.0", "--port", "3000"]
 

@@ -3,9 +3,9 @@ import json
 import uuid
 import sys
 import logging
-import hashlib
-import base64
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
+# Set up clean production system logs
 logging.basicConfig(
     level=logging.WARNING,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -14,8 +14,8 @@ logging.basicConfig(
 logger = logging.getLogger("mc_cleaner")
 logger.setLevel(logging.INFO)
 
-HOST = "0.0.0.0"
-PORT = 3000
+app = FastAPI()
+
 ALL_MOBS = ["zombie", "enderman", "husk", "drowned", "zombie_villager", "creeper"]
 
 def generate_command_packet(cmd_string):
@@ -33,102 +33,42 @@ def generate_command_packet(cmd_string):
         }
     }
 
-def encode_websocket_frame(payload):
-    payload_bytes = payload.encode('utf-8')
-    length = len(payload_bytes)
-    frame = bytearray([0x81])
-    
-    if length <= 125:
-        frame.append(length)
-    elif length <= 65535:
-        frame.append(126)
-        frame.extend(length.to_bytes(2, byteorder='big'))
-    else:
-        frame.append(127)
-        frame.extend(length.to_bytes(8, byteorder='big'))
-        
-    frame.extend(payload_bytes)
-    return frame
+# Standard HTTP Endpoint for Render's dynamic auto-ping Health Checks
+@app.get("/")
+async def health_check():
+    return {"status": "online", "service": "minecraft_cleaner"}
 
-async def handle_client(reader, writer):
-    peer = writer.get_extra_info('peername')
+# Native compliant endpoint matching any subprotocol handshake Minecraft requests
+@app.websocket("/")
+async def websocket_endpoint(websocket: WebSocket):
+    # Accept the handshake dynamically, honoring cross-origin routing flags
+    await websocket.accept(subprotocol=websocket.headers.get("sec-websocket-protocol"))
     
-    request_data = b""
-    try:
-        # Esperamos a leer la cabecera HTTP completa
-        while b"\r\n\r\n" not in request_data:
-            chunk = await asyncio.wait_for(reader.read(1024), timeout=2.0)
-            if not chunk:
-                break
-            request_data += chunk
-    except asyncio.TimeoutError:
-        writer.close()
-        return
-        
-    request_text = request_data.decode('utf-8', errors='ignore')
-    
-    # BUSQUEDA INTELIGENTE DE LA LLAVE WEBSOCKET
-    ws_key = None
-    for line in request_text.split("\r\n"):
-        if line.lower().startswith("sec-websocket-key:"):
-            ws_key = line.split(":", 1)[1].strip()
-            break
-            
-    # SI ES UN PING DE RENDER (HTTP Normal, sin llave WS)
-    if not ws_key:
-        # Respondemos con éxito HTTP 200 para mantener el servicio activo en Render
-        response = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK"
-        writer.write(response.encode('utf-8'))
-        await writer.drain()
-        writer.close()
-        return
-
-    # SI ES MINECRAFT TABLET REAL (Contiene la llave WS)
-    logger.info(f"[+] ¡Minecraft Tablet detectado desde {peer}! Procesando Handshake...")
-    
-    guid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
-    accept_sha1 = hashlib.sha1((ws_key + guid).encode('utf-8')).digest()
-    accept_b64 = base64.b64encode(accept_sha1).decode('utf-8')
-    
-    # Respondemos con el cambio de protocolo exacto
-    response = (
-        "HTTP/1.1 101 Switching Protocols\r\n"
-        "Upgrade: websocket\r\n"
-        "Connection: Upgrade\r\n"
-        f"Sec-WebSocket-Accept: {accept_b64}\r\n\r\n"
-    )
-    writer.write(response.encode('utf-8'))
-    await writer.drain()
-    
-    logger.info(f"[+] ¡Conexión Establecida y Cifrada con la Tablet!")
+    peer_ip = websocket.client.host if websocket.client else "Unknown"
+    logger.info(f"[+] ¡Minecraft Tablet Conectado Exitosamente desde Proxy/IP: {peer_ip}!")
     
     try:
+        # Crucial delay to let Bedrock process the secure handshake frame stabilization
         await asyncio.sleep(1.0)
         
-        # Inyectamos comandos iniciales
-        writer.write(encode_websocket_frame(json.dumps(generate_command_packet("gamerule commandblockoutput false"))))
-        writer.write(encode_websocket_frame(json.dumps(generate_command_packet("gamerule sendcommandfeedback false"))))
-        writer.write(encode_websocket_frame(json.dumps(generate_command_packet("say [Nube] Anti-Mob protection active."))))
-        await writer.drain()
-
+        # Inject standard operational rules into the tablet game environment
+        await websocket.send_json(generate_command_packet("gamerule commandblockoutput false"))
+        await websocket.send_json(generate_command_packet("gamerule sendcommandfeedback false"))
+        await websocket.send_json(generate_command_packet("say [Nube] Anti-Mob protection active."))
+        
         while True:
             for mob in ALL_MOBS:
                 cmd = f"kill @e[type={mob}]"
-                writer.write(encode_websocket_frame(json.dumps(generate_command_packet(cmd))))
-            await writer.drain()
+                await websocket.send_json(generate_command_packet(cmd))
             await asyncio.sleep(2.0)
             
+    except WebSocketDisconnect:
+        logger.info(f"[-] Minecraft Tablet desconectado de la sesión.")
     except Exception as e:
-        logger.info(f"[-] Conexión finalizada de la tablet: {e}")
-    finally:
-        writer.close()
-
-async def main():
-    logger.info(f"[*] Iniciando Servidor TCP Crudo en Puerto {PORT}...")
-    server = await asyncio.start_server(handle_client, HOST, PORT)
-    async with server:
-        await server.serve_forever()
+        logger.info(f"[-] Conexión interrumpida debido a: {e}")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    import uvicorn
+    # Bind directly to Render's exposed environment parameters on port 3000
+    uvicorn.run(app, host="0.0.0.0", port=3000)
 
