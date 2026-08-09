@@ -40,13 +40,14 @@ async def process_command_stream(websocket):
     logger.info(f"[+] Minecraft Conectado Exitosamente: {peer_address}")
     
     try:
-        # Pausa crucial para permitir que la tablet asimile el canal seguro antes de saturarla
+        # Esperamos 2 segundos completos a que la tablet configure el canal antes de hablarle
+        await asyncio.sleep(2.0)
+
+        # Enviamos UN SOLO comando inicial para verificar que el puente funciona
+        await websocket.send(json.dumps(generate_command_packet("say [Nube] ¡Conectado con éxito!")))
         await asyncio.sleep(1.0)
 
-        await websocket.send(json.dumps(generate_command_packet("gamerule commandblockoutput false")))
-        await websocket.send(json.dumps(generate_command_packet("gamerule sendcommandfeedback false")))
-        await websocket.send(json.dumps(generate_command_packet("say [Nube] Anti-Mob protection active.")))
-
+        # Si el comando anterior funciona, iniciamos el bucle de limpieza
         while True:
             for mob in ALL_MOBS:
                 cmd = f"kill @e[type={mob}]"
@@ -55,6 +56,7 @@ async def process_command_stream(websocket):
             
     except websockets.exceptions.ConnectionClosed:
         logger.info(f"[-] Minecraft desconectado: {peer_address}")
+
 
 # CORRECCIÓN PARA WEBSOCKETS 12.0+: Interceptamos de forma segura las cabeceras del objeto Request
 async def process_handshake(websocket, request):
