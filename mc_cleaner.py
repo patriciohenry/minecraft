@@ -4,8 +4,6 @@ import uuid
 import sys
 import logging
 import websockets
-from websockets.http11 import Response  # Needed for custom handshake rejection/approval
-import os  # Asegúrate de que esta línea esté arriba junto a los demás imports
 
 # Configuración de logs limpia para evitar ruido en producción
 logging.basicConfig(
@@ -19,8 +17,7 @@ logger.setLevel(logging.INFO)
 
 # Configuración de red para contenedores Docker en Render
 HOST = "0.0.0.0"
-PORT = int(os.environ.get("PORT", 3000))  # <--- CAMBIA ESTA LÍNEA EXACTAMENTE ASÍ
-
+PORT = 3000
 
 ALL_MOBS = ["zombie", "enderman", "husk", "drowned", "zombie_villager", "creeper"]
 
@@ -42,10 +39,10 @@ def generate_command_packet(cmd_string):
 async def process_command_stream(websocket):
     """Bucle directo de inyección de comandos."""
     peer_address = websocket.remote_address
-    logger.info(f"[+] Minecraft Conectado Exitosamente: {peer_address}")
+    logger.info(f"[+] Minecraft Conectado Exitosamente desde: {peer_address}")
     
     try:
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(1.0) # Tiempo de espera para que la tablet asimile el canal
 
         await websocket.send(json.dumps(generate_command_packet("gamerule commandblockoutput false")))
         await websocket.send(json.dumps(generate_command_packet("gamerule sendcommandfeedback false")))
@@ -60,21 +57,20 @@ async def process_command_stream(websocket):
     except websockets.exceptions.ConnectionClosed:
         logger.info(f"[-] Minecraft desconectado: {peer_address}")
 
-def select_minecraft_subprotocol(connection, protocols):
-    """ Dynamically accepts any subprotocol requested by Minecraft Bedrock """
-    if protocols:
-        return protocols[0]
+def select_minecraft_subprotocol(ws, protocols):
+    """ Fuerza la aceptación de subprotocolos de Minecraft """
     return None
 
 async def main():
     logger.info(f"[*] Iniciando Servidor WebSockets en Puerto {PORT}...")
     
-    # We use select_subprotocol callback to dynamically bind to the game client
+    # origins=[None] permite saltarse la seguridad de origen que bloquea el proxy de Render
     async with websockets.serve(
         process_command_stream, 
         HOST, 
         PORT,
-        select_subprotocol=select_minecraft_subprotocol
+        select_subprotocol=select_minecraft_subprotocol,
+        origins=[None]
     ):
         await asyncio.Future()
 
