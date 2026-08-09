@@ -4,6 +4,7 @@ import uuid
 import sys
 import logging
 import websockets
+from websockets.http11 import Response
 
 # Configuración de logs limpia para evitar ruido en producción
 logging.basicConfig(
@@ -15,6 +16,7 @@ logging.basicConfig(
 logger = logging.getLogger("mc_cleaner")
 logger.setLevel(logging.INFO)
 
+# Configuración de red para contenedores Docker en Render
 HOST = "0.0.0.0"
 PORT = 3000
 
@@ -41,10 +43,8 @@ async def process_command_stream(websocket):
     logger.info(f"[+] Minecraft Conectado Exitosamente: {peer_address}")
     
     try:
-        # Un pequeño respiro de seguridad
-        await asyncio.sleep(1.0)
+        await asyncio.sleep(1.0) # Tiempo para que la tablet asimile el canal
 
-        # Enviar comandos de inicialización sin la barra '/'
         await websocket.send(json.dumps(generate_command_packet("gamerule commandblockoutput false")))
         await websocket.send(json.dumps(generate_command_packet("gamerule sendcommandfeedback false")))
         await websocket.send(json.dumps(generate_command_packet("say [Nube] Anti-Mob protection active.")))
@@ -58,28 +58,33 @@ async def process_command_stream(websocket):
     except websockets.exceptions.ConnectionClosed:
         logger.info(f"[-] Minecraft desconectado: {peer_address}")
 
-async def process_handshake(path, request_headers):
+async def process_handshake(connection, request):
     """
-    Manejador del saludo inicial adaptado para Websockets 12+.
-    Acepta cualquier origen y subprotocolo enviado por la tablet sin restricciones de proxy.
+    Maneja el protocolo de saludo de Minecraft Bedrock de forma segura
+    compatible con websockets >= 12.0
     """
-    response_headers = []
+    # En versiones modernas, extraemos las cabeceras usando .headers.get()
+    protocol_header = request.headers.get("Sec-WebSocket-Protocol", "")
     
-    # Si Minecraft envía la cabecera solicitando subprotocolo, se la aprobamos de vuelta
-    if "Sec-WebSocket-Protocol" in request_headers:
-        response_headers.append(("Sec-WebSocket-Protocol", request_headers["Sec-WebSocket-Protocol"]))
-        
-    return None, response_headers
+    if protocol_header:
+        # Si la tablet pide un subprotocolo, se lo aprobamos en la respuesta
+        return Response(
+            status=101,
+            reason="Switching Protocols",
+            headers={"Sec-WebSocket-Protocol": protocol_header}
+        )
+    return None
 
 async def main():
-    logger.info(f"[*] Iniciando Servidor WebSockets v12+ en Puerto {PORT}...")
+    logger.info(f"[*] Iniciando Servidor WebSockets en Puerto {PORT}...")
     
-    # Usamos process_request para un bypass absoluto de seguridad sobre el proxy de Render
+    # Configuramos el servidor ignorando restricciones de origen para el proxy de Render
     async with websockets.serve(
         process_command_stream, 
         HOST, 
         PORT,
-        process_request=process_handshake
+        process_request=process_handshake,
+        origins=[None]
     ):
         await asyncio.Future()
 
