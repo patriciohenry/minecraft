@@ -15,7 +15,6 @@ logging.basicConfig(
 logger = logging.getLogger("mc_cleaner")
 logger.setLevel(logging.INFO)
 
-# Configuración de red para contenedores Docker en Render
 HOST = "0.0.0.0"
 PORT = 3000
 
@@ -42,9 +41,10 @@ async def process_command_stream(websocket):
     logger.info(f"[+] Minecraft Conectado Exitosamente: {peer_address}")
     
     try:
-        # Un pequeño delay para que la tablet procese la aceptación de la conexión
+        # Un pequeño respiro de seguridad
         await asyncio.sleep(1.0)
 
+        # Enviar comandos de inicialización sin la barra '/'
         await websocket.send(json.dumps(generate_command_packet("gamerule commandblockoutput false")))
         await websocket.send(json.dumps(generate_command_packet("gamerule sendcommandfeedback false")))
         await websocket.send(json.dumps(generate_command_packet("say [Nube] Anti-Mob protection active.")))
@@ -58,26 +58,28 @@ async def process_command_stream(websocket):
     except websockets.exceptions.ConnectionClosed:
         logger.info(f"[-] Minecraft desconectado: {peer_address}")
 
-def select_minecraft_subprotocol(protocols):
-    """ 
-    FIX PARA WEBSOCKETS 12.0+: 
-    Minecraft Bedrock a veces pide un subprotocolo vacío o ninguno.
-    Si el cliente ofrece subprotocolos, seleccionamos el primero; si no, devolvemos cadena vacía.
+async def process_handshake(path, request_headers):
     """
-    if protocols:
-        return protocols[0]
-    return ""
+    Manejador del saludo inicial adaptado para Websockets 12+.
+    Acepta cualquier origen y subprotocolo enviado por la tablet sin restricciones de proxy.
+    """
+    response_headers = []
+    
+    # Si Minecraft envía la cabecera solicitando subprotocolo, se la aprobamos de vuelta
+    if "Sec-WebSocket-Protocol" in request_headers:
+        response_headers.append(("Sec-WebSocket-Protocol", request_headers["Sec-WebSocket-Protocol"]))
+        
+    return None, response_headers
 
 async def main():
-    logger.info(f"[*] Iniciando Servidor WebSockets en Puerto {PORT}...")
+    logger.info(f"[*] Iniciando Servidor WebSockets v12+ en Puerto {PORT}...")
     
-    # Configuramos el servidor ignorando restricciones de origen de Render
+    # Usamos process_request para un bypass absoluto de seguridad sobre el proxy de Render
     async with websockets.serve(
         process_command_stream, 
         HOST, 
         PORT,
-        select_subprotocol=select_minecraft_subprotocol,
-        origins=[None]
+        process_request=process_handshake
     ):
         await asyncio.Future()
 
