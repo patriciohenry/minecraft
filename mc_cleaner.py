@@ -5,7 +5,6 @@ import sys
 import logging
 import websockets
 
-# Clean logging setup
 logging.basicConfig(
     level=logging.WARNING,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -41,7 +40,6 @@ async def process_command_stream(websocket):
     logger.info(f"[+] Minecraft Conectado Exitosamente: {peer_address}")
     
     try:
-        # Crucial pause to let Bedrock finalize its internal connection state
         await asyncio.sleep(1.0)
 
         await websocket.send(json.dumps(generate_command_packet("gamerule commandblockoutput false")))
@@ -57,28 +55,24 @@ async def process_command_stream(websocket):
     except websockets.exceptions.ConnectionClosed:
         logger.info(f"[-] Minecraft desconectado: {peer_address}")
 
-# CRITICAL BEDROCK HANDSHAKE FIX FOR WEBSOCKETS 12.0+
-def select_minecraft_protocol(connection, requested_protocols):
+# FIXED HANDSHAKE LOGIC FOR WEBSOCKETS 12.0+
+def select_minecraft_subprotocol(connection, subprotocols):
     """
-    Forces the server to accept Minecraft Bedrock's handshake signature.
-    If Minecraft asks for a specific protocol or leaves it blank, 
-    we approve it directly to prevent 'conexion terminada'.
+    Forces the modern library to allow empty subprotocol handshakes.
+    This prevents Minecraft Bedrock from triggering a 'conexión terminada' error.
     """
-    if requested_protocols:
-        return requested_protocols[0]
-    return None
+    return ""
 
 async def main():
     logger.info(f"[*] Iniciando Servidor WebSockets en Puerto {PORT}...")
     
-    # We bypass cross-origin checks via origins=[None] for the Render proxy
-    # and use select_subprotocol to intercept and solve the protocol selection natively
+    # We pass empty string initialization override directly into the server instance
     async with websockets.serve(
         process_command_stream, 
         HOST, 
         PORT,
         origins=[None],
-        select_subprotocol=select_minecraft_protocol
+        select_subprotocol=select_minecraft_subprotocol
     ):
         await asyncio.Future()
 
