@@ -11,7 +11,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the python script into the container
 COPY mc_cleaner.py .
 
-# CRITICAL FIX: Tell Render to route public internet traffic to port 3000
+# Tell Render to route public internet traffic to port 3000
 EXPOSE 3000
 
 # Run the application through the production server wrapper

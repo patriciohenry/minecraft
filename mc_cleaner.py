@@ -38,20 +38,30 @@ def generate_command_packet(cmd_string):
 async def health_check():
     return {"status": "online", "service": "minecraft_cleaner"}
 
-# Native compliant endpoint matching any subprotocol handshake Minecraft requests
+# Route 1: Catches wss://://onrender.com
 @app.websocket("/")
-async def websocket_endpoint(websocket: WebSocket):
-    # Accept the handshake dynamically, honoring cross-origin routing flags
-    await websocket.accept(subprotocol=websocket.headers.get("sec-websocket-protocol"))
+async def websocket_root_endpoint(websocket: WebSocket):
+    await handle_minecraft_session(websocket)
+
+# Route 2: Catches wss://://onrender.com/ws
+@app.websocket("/ws")
+async def websocket_ws_endpoint(websocket: WebSocket):
+    await handle_minecraft_session(websocket)
+
+# Reusable core session logic function
+async def handle_minecraft_session(websocket: WebSocket):
+    # Accept the handshake dynamically, honoring Minecraft's protocol demands
+    requested_protocol = websocket.headers.get("sec-websocket-protocol")
+    await websocket.accept(subprotocol=requested_protocol)
     
     peer_ip = websocket.client.host if websocket.client else "Unknown"
     logger.info(f"[+] ¡Minecraft Tablet Conectado Exitosamente desde Proxy/IP: {peer_ip}!")
     
     try:
-        # Crucial delay to let Bedrock process the secure handshake frame stabilization
+        # Crucial delay to let Bedrock process secure handshake frames
         await asyncio.sleep(1.0)
         
-        # Inject standard operational rules into the tablet game environment
+        # Inject standard operational rules into the game environment
         await websocket.send_json(generate_command_packet("gamerule commandblockoutput false"))
         await websocket.send_json(generate_command_packet("gamerule sendcommandfeedback false"))
         await websocket.send_json(generate_command_packet("say [Nube] Anti-Mob protection active."))
@@ -63,7 +73,7 @@ async def websocket_endpoint(websocket: WebSocket):
             await asyncio.sleep(2.0)
             
     except WebSocketDisconnect:
-        logger.info(f"[-] Minecraft Tablet desconectado de la sesión.")
+        logger.info(f"[-] Minecraft Tablet desconectado de la sesión de forma limpia.")
     except Exception as e:
         logger.info(f"[-] Conexión interrumpida debido a: {e}")
 
