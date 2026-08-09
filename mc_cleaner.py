@@ -5,6 +5,7 @@ import sys
 import logging
 import websockets
 
+# Configuración de logs limpia para evitar ruido en producción
 logging.basicConfig(
     level=logging.WARNING,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -14,6 +15,7 @@ logging.basicConfig(
 logger = logging.getLogger("mc_cleaner")
 logger.setLevel(logging.INFO)
 
+# Configuración de red para contenedores Docker en Render
 HOST = "0.0.0.0"
 PORT = 3000
 
@@ -40,14 +42,13 @@ async def process_command_stream(websocket):
     logger.info(f"[+] Minecraft Conectado Exitosamente: {peer_address}")
     
     try:
-        # Esperamos 2 segundos completos a que la tablet configure el canal antes de hablarle
-        await asyncio.sleep(2.0)
-
-        # Enviamos UN SOLO comando inicial para verificar que el puente funciona
-        await websocket.send(json.dumps(generate_command_packet("say [Nube] ¡Conectado con éxito!")))
+        # Pausa crucial para permitir que la tablet asimile el canal seguro antes de saturarla
         await asyncio.sleep(1.0)
 
-        # Si el comando anterior funciona, iniciamos el bucle de limpieza
+        await websocket.send(json.dumps(generate_command_packet("gamerule commandblockoutput false")))
+        await websocket.send(json.dumps(generate_command_packet("gamerule sendcommandfeedback false")))
+        await websocket.send(json.dumps(generate_command_packet("say [Nube] Anti-Mob protection active.")))
+
         while True:
             for mob in ALL_MOBS:
                 cmd = f"kill @e[type={mob}]"
@@ -57,25 +58,16 @@ async def process_command_stream(websocket):
     except websockets.exceptions.ConnectionClosed:
         logger.info(f"[-] Minecraft desconectado: {peer_address}")
 
-
-# CORRECCIÓN PARA WEBSOCKETS 12.0+: Interceptamos de forma segura las cabeceras del objeto Request
-async def process_handshake(websocket, request):
-    # En websockets 12+, las cabeceras se extraen usando request.headers
-    if "Sec-WebSocket-Protocol" in request.headers:
-        # Le devolvemos a Minecraft exactamente el protocolo que nos está pidiendo para validar el handshake
-        websocket.subprotocol = request.headers["Sec-WebSocket-Protocol"]
-    return None
-
 async def main():
     logger.info(f"[*] Iniciando Servidor WebSockets en Puerto {PORT}...")
     
-    # Abrimos el servidor ignorando restricciones de origen externas (origins=[None])
+    # En websockets 12+, dejar "origins" vacío o con la lista correcta
+    # permite que el proxy inverso de Render entregue el tráfico directamente
     async with websockets.serve(
         process_command_stream, 
         HOST, 
         PORT,
-        process_request=process_handshake,
-        origins=[None]
+        origins=["https://onrender.com", "http://onrender.com"]
     ):
         await asyncio.Future()
 
