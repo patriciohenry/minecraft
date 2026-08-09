@@ -5,6 +5,7 @@ import sys
 import logging
 import websockets
 from websockets.http11 import Response  # Needed for custom handshake rejection/approval
+import os  # Asegúrate de que esta línea esté arriba junto a los demás imports
 
 # Configuración de logs limpia para evitar ruido en producción
 logging.basicConfig(
@@ -18,7 +19,8 @@ logger.setLevel(logging.INFO)
 
 # Configuración de red para contenedores Docker en Render
 HOST = "0.0.0.0"
-PORT = 3000
+PORT = int(os.environ.get("PORT", 3000))  # <--- CAMBIA ESTA LÍNEA EXACTAMENTE ASÍ
+
 
 ALL_MOBS = ["zombie", "enderman", "husk", "drowned", "zombie_villager", "creeper"]
 
