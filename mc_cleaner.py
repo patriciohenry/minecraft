@@ -3,20 +3,19 @@ import json
 import uuid
 import sys
 import logging
-import websockets
+import hashlib
+import base64
 
 logging.basicConfig(
     level=logging.WARNING,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[logging.StreamHandler(sys.stdout)]
 )
-
 logger = logging.getLogger("mc_cleaner")
 logger.setLevel(logging.INFO)
 
 HOST = "0.0.0.0"
 PORT = 3000
-
 ALL_MOBS = ["zombie", "enderman", "husk", "drowned", "zombie_villager", "creeper"]
 
 def generate_command_packet(cmd_string):
@@ -34,47 +33,92 @@ def generate_command_packet(cmd_string):
         }
     }
 
-async def process_command_stream(websocket):
-    """Direct command injection loop."""
-    peer_address = websocket.remote_address
-    logger.info(f"[+] Minecraft Conectado Exitosamente: {peer_address}")
+def encode_websocket_frame(payload):
+    """ Encodes data into a standard raw WebSocket text frame """
+    payload_bytes = payload.encode('utf-8')
+    length = len(payload_bytes)
+    frame = bytearray([0x81]) # FIN bit set + Text frame type
+    
+    if length <= 125:
+        frame.append(length)
+    elif length <= 65535:
+        frame.append(126)
+        frame.extend(length.to_bytes(2, byteorder='big'))
+    else:
+        frame.append(127)
+        frame.extend(length.to_bytes(8, byteorder='big'))
+        
+    frame.extend(payload_bytes)
+    return frame
+
+async def handle_client(reader, writer):
+    peer = writer.get_extra_info('peername')
+    logger.info(f"[+] Nueva petición de conexión desde: {peer}")
+    
+    # Read the raw HTTP Handshake request headers
+    request_data = b""
+    while b"\r\n\r\n" not in request_data:
+        chunk = await reader.read(1024)
+        if not chunk:
+            break
+        request_data += chunk
+        
+    request_text = request_data.decode('utf-8', errors='ignore')
+    
+    # Extract the WebSocket Key needed to satisfy the connection
+    ws_key = None
+    for line in request_text.split("\r\n"):
+        if line.lower().startswith("sec-websocket-key:"):
+            ws_key = line.split(":", 1)[1].strip()
+            break
+            
+    if not ws_key:
+        writer.close()
+        return
+
+    # Calculate the security accept token
+    guid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+    accept_sha1 = hashlib.sha1((ws_key + guid).encode('utf-8')).digest()
+    accept_b64 = base64.b64encode(accept_sha1).decode('utf-8')
+    
+    # Send a RAW response that matches Minecraft's strict requirements perfectly
+    response = (
+        "HTTP/1.1 101 Switching Protocols\r\n"
+        "Upgrade: websocket\r\n"
+        "Connection: Upgrade\r\n"
+        f"Sec-WebSocket-Accept: {accept_b64}\r\n\r\n"
+    )
+    writer.write(response.encode('utf-8'))
+    await writer.drain()
+    
+    logger.info(f"[+] Handshake completado con éxito para Minecraft Bedrock!")
     
     try:
         await asyncio.sleep(1.0)
-
-        await websocket.send(json.dumps(generate_command_packet("gamerule commandblockoutput false")))
-        await websocket.send(json.dumps(generate_command_packet("gamerule sendcommandfeedback false")))
-        await websocket.send(json.dumps(generate_command_packet("say [Nube] Anti-Mob protection active.")))
+        
+        # Send initial setup packets
+        writer.write(encode_websocket_frame(json.dumps(generate_command_packet("gamerule commandblockoutput false"))))
+        writer.write(encode_websocket_frame(json.dumps(generate_command_packet("gamerule sendcommandfeedback false"))))
+        writer.write(encode_websocket_frame(json.dumps(generate_command_packet("say [Nube] Anti-Mob protection active."))))
+        await writer.drain()
 
         while True:
             for mob in ALL_MOBS:
                 cmd = f"kill @e[type={mob}]"
-                await websocket.send(json.dumps(generate_command_packet(cmd)))
+                writer.write(encode_websocket_frame(json.dumps(generate_command_packet(cmd))))
+            await writer.drain()
             await asyncio.sleep(2.0)
             
-    except websockets.exceptions.ConnectionClosed:
-        logger.info(f"[-] Minecraft desconectado: {peer_address}")
-
-# FIXED HANDSHAKE LOGIC FOR WEBSOCKETS 12.0+
-def select_minecraft_subprotocol(connection, subprotocols):
-    """
-    Forces the modern library to allow empty subprotocol handshakes.
-    This prevents Minecraft Bedrock from triggering a 'conexión terminada' error.
-    """
-    return ""
+    except Exception as e:
+        logger.info(f"[-] Conexión cerrada o error: {e}")
+    finally:
+        writer.close()
 
 async def main():
-    logger.info(f"[*] Iniciando Servidor WebSockets en Puerto {PORT}...")
-    
-    # We pass empty string initialization override directly into the server instance
-    async with websockets.serve(
-        process_command_stream, 
-        HOST, 
-        PORT,
-        origins=[None],
-        select_subprotocol=select_minecraft_subprotocol
-    ):
-        await asyncio.Future()
+    logger.info(f"[*] Iniciando Servidor TCP Crudo en Puerto {PORT}...")
+    server = await asyncio.start_server(handle_client, HOST, PORT)
+    async with server:
+        await server.serve_forever()
 
 if __name__ == "__main__":
     asyncio.run(main())
