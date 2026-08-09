@@ -39,10 +39,11 @@ def generate_command_packet(cmd_string):
 async def process_command_stream(websocket):
     """Bucle directo de inyección de comandos."""
     peer_address = websocket.remote_address
-    logger.info(f"[+] Minecraft Conectado Exitosamente desde: {peer_address}")
+    logger.info(f"[+] Minecraft Conectado Exitosamente: {peer_address}")
     
     try:
-        await asyncio.sleep(1.0) # Tiempo de espera para que la tablet asimile el canal
+        # Un pequeño delay para que la tablet procese la aceptación de la conexión
+        await asyncio.sleep(1.0)
 
         await websocket.send(json.dumps(generate_command_packet("gamerule commandblockoutput false")))
         await websocket.send(json.dumps(generate_command_packet("gamerule sendcommandfeedback false")))
@@ -57,14 +58,20 @@ async def process_command_stream(websocket):
     except websockets.exceptions.ConnectionClosed:
         logger.info(f"[-] Minecraft desconectado: {peer_address}")
 
-def select_minecraft_subprotocol(ws, protocols):
-    """ Fuerza la aceptación de subprotocolos de Minecraft """
-    return None
+def select_minecraft_subprotocol(protocols):
+    """ 
+    FIX PARA WEBSOCKETS 12.0+: 
+    Minecraft Bedrock a veces pide un subprotocolo vacío o ninguno.
+    Si el cliente ofrece subprotocolos, seleccionamos el primero; si no, devolvemos cadena vacía.
+    """
+    if protocols:
+        return protocols[0]
+    return ""
 
 async def main():
     logger.info(f"[*] Iniciando Servidor WebSockets en Puerto {PORT}...")
     
-    # origins=[None] permite saltarse la seguridad de origen que bloquea el proxy de Render
+    # Configuramos el servidor ignorando restricciones de origen de Render
     async with websockets.serve(
         process_command_stream, 
         HOST, 
