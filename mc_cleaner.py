@@ -5,7 +5,7 @@ import sys
 import logging
 import websockets
 
-# Configuración de logs limpia para evitar ruido en producción
+# Clean logging setup
 logging.basicConfig(
     level=logging.WARNING,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -15,7 +15,6 @@ logging.basicConfig(
 logger = logging.getLogger("mc_cleaner")
 logger.setLevel(logging.INFO)
 
-# Configuración de red para contenedores Docker en Render
 HOST = "0.0.0.0"
 PORT = 3000
 
@@ -37,12 +36,12 @@ def generate_command_packet(cmd_string):
     }
 
 async def process_command_stream(websocket):
-    """Bucle directo de inyección de comandos."""
+    """Direct command injection loop."""
     peer_address = websocket.remote_address
     logger.info(f"[+] Minecraft Conectado Exitosamente: {peer_address}")
     
     try:
-        # Pausa crucial para permitir que la tablet asimile el canal seguro antes de saturarla
+        # Crucial pause to let Bedrock finalize its internal connection state
         await asyncio.sleep(1.0)
 
         await websocket.send(json.dumps(generate_command_packet("gamerule commandblockoutput false")))
@@ -58,16 +57,28 @@ async def process_command_stream(websocket):
     except websockets.exceptions.ConnectionClosed:
         logger.info(f"[-] Minecraft desconectado: {peer_address}")
 
+# CRITICAL BEDROCK HANDSHAKE FIX FOR WEBSOCKETS 12.0+
+def select_minecraft_protocol(connection, requested_protocols):
+    """
+    Forces the server to accept Minecraft Bedrock's handshake signature.
+    If Minecraft asks for a specific protocol or leaves it blank, 
+    we approve it directly to prevent 'conexion terminada'.
+    """
+    if requested_protocols:
+        return requested_protocols[0]
+    return None
+
 async def main():
     logger.info(f"[*] Iniciando Servidor WebSockets en Puerto {PORT}...")
     
-    # En websockets 12+, dejar "origins" vacío o con la lista correcta
-    # permite que el proxy inverso de Render entregue el tráfico directamente
+    # We bypass cross-origin checks via origins=[None] for the Render proxy
+    # and use select_subprotocol to intercept and solve the protocol selection natively
     async with websockets.serve(
         process_command_stream, 
         HOST, 
         PORT,
-        origins=["https://onrender.com", "http://onrender.com"]
+        origins=[None],
+        select_subprotocol=select_minecraft_protocol
     ):
         await asyncio.Future()
 
