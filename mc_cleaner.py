@@ -4,6 +4,7 @@ import uuid
 import sys
 import logging
 import websockets
+from websockets.http11 import Response  # Needed for custom handshake rejection/approval
 
 # Configuración de logs limpia para evitar ruido en producción
 logging.basicConfig(
@@ -27,7 +28,6 @@ def generate_command_packet(cmd_string):
             "version": 1,
             "requestId": str(uuid.uuid4()),
             "messageType": "commandRequest",
-            # FIXED: Changed "purpose" to "messagePurpose" for Bedrock compatibility
             "messagePurpose": "commandRequest" 
         },
         "body": {
@@ -43,7 +43,6 @@ async def process_command_stream(websocket):
     logger.info(f"[+] Minecraft Conectado Exitosamente: {peer_address}")
     
     try:
-        # Give the tablet 0.5 seconds to settle the connection handshake before flooding commands
         await asyncio.sleep(0.5)
 
         await websocket.send(json.dumps(generate_command_packet("gamerule commandblockoutput false")))
@@ -59,18 +58,23 @@ async def process_command_stream(websocket):
     except websockets.exceptions.ConnectionClosed:
         logger.info(f"[-] Minecraft desconectado: {peer_address}")
 
+def select_minecraft_subprotocol(connection, protocols):
+    """ Dynamically accepts any subprotocol requested by Minecraft Bedrock """
+    if protocols:
+        return protocols[0]
+    return None
+
 async def main():
     logger.info(f"[*] Iniciando Servidor WebSockets en Puerto {PORT}...")
     
-    # Agregamos subprotocols=[""] para aceptar la negociación nativa de Minecraft Bedrock
+    # We use select_subprotocol callback to dynamically bind to the game client
     async with websockets.serve(
         process_command_stream, 
         HOST, 
         PORT,
-        subprotocols=[""]
+        select_subprotocol=select_minecraft_subprotocol
     ):
         await asyncio.Future()
-
 
 if __name__ == "__main__":
     asyncio.run(main())
