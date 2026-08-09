@@ -11,7 +11,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the python script into the container
 COPY mc_cleaner.py .
 
-# REMOVED EXPOSE 3000 - Render handles port routing dynamically via environment variables
+# CRITICAL FIX: Tell Render to route public internet traffic to port 3000
+EXPOSE 3000
 
 # Run the script when the container starts
 CMD ["python", "mc_cleaner.py"]
