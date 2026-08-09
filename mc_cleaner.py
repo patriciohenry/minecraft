@@ -27,7 +27,8 @@ def generate_command_packet(cmd_string):
             "version": 1,
             "requestId": str(uuid.uuid4()),
             "messageType": "commandRequest",
-            "purpose": "commandRequest"
+            # FIXED: Changed "purpose" to "messagePurpose" for Bedrock compatibility
+            "messagePurpose": "commandRequest" 
         },
         "body": {
             "version": 1,
@@ -42,13 +43,16 @@ async def process_command_stream(websocket):
     logger.info(f"[+] Minecraft Conectado Exitosamente: {peer_address}")
     
     try:
-        await websocket.send(json.dumps(generate_command_packet("/gamerule commandBlockOutput false")))
-        await websocket.send(json.dumps(generate_command_packet("/gamerule sendCommandFeedback false")))
-        await websocket.send(json.dumps(generate_command_packet("/say [Nube] Anti-Mob protection active.")))
+        # Give the tablet 0.5 seconds to settle the connection handshake before flooding commands
+        await asyncio.sleep(0.5)
+
+        await websocket.send(json.dumps(generate_command_packet("gamerule commandblockoutput false")))
+        await websocket.send(json.dumps(generate_command_packet("gamerule sendcommandfeedback false")))
+        await websocket.send(json.dumps(generate_command_packet("say [Nube] Anti-Mob protection active.")))
 
         while True:
             for mob in ALL_MOBS:
-                cmd = f"/kill @e[type={mob}]"
+                cmd = f"kill @e[type={mob}]"
                 await websocket.send(json.dumps(generate_command_packet(cmd)))
             await asyncio.sleep(2.0)
             
