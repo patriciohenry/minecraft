@@ -62,13 +62,15 @@ async def process_command_stream(websocket):
 async def main():
     logger.info(f"[*] Iniciando Servidor WebSockets en Puerto {PORT}...")
     
-    # Levantamos el servicio básico sin filtros complejos para máxima compatibilidad
+    # Agregamos subprotocols=[""] para aceptar la negociación nativa de Minecraft Bedrock
     async with websockets.serve(
         process_command_stream, 
         HOST, 
-        PORT
+        PORT,
+        subprotocols=[""]
     ):
         await asyncio.Future()
+
 
 if __name__ == "__main__":
     asyncio.run(main())
